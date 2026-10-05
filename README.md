@@ -66,9 +66,35 @@ npm run build
 
 ## Struktur Utama
 
-- `app/admin/`: halaman operasional admin.
-- `app/staf/`: halaman operasional staf.
-- `app/api/`: endpoint untuk barang, kategori, target, transaksi, dan laporan cacat.
-- `components/`: layout, navigasi, tema, dan state stok.
-- `prisma/schema.prisma`: model dan relasi database.
-- `prisma/seed.ts`: data awal opsional.
+```text
+.
+├── app/
+│   ├── admin/
+│   │   ├── barang/[id]/
+│   │   ├── laporan/
+│   │   ├── notifikasi/
+│   │   └── produksi/
+│   ├── api/
+│   │   ├── items/[id]/
+│   │   ├── kategori/
+│   │   ├── laporan-cacat/[id]/
+│   │   ├── targets/[id]/
+│   │   └── transactions/
+│   ├── login/
+│   └── staf/
+│       ├── data-barang/[id]/
+│       ├── keluar/
+│       ├── masuk/
+│       ├── notifikasi/
+│       └── produksi/
+├── components/          # Layout, navigasi, tema, dan state stok
+├── lib/                 # Koneksi Prisma, Supabase, dan utilitas PDF
+├── prisma/
+│   ├── schema.prisma    # Model dan relasi database
+│   └── seed.ts          # Data awal opsional
+├── public/              # Aset statis
+├── scripts/             # Skrip utilitas proyek
+├── .env.local           # Variabel lingkungan (buat sendiri, tidak di-commit)
+├── package.json
+└── README.md
+```
