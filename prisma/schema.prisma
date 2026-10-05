@@ -1,0 +1,115 @@
+// This is your Prisma schema file
+// Terhubung ke Supabase (PostgreSQL) via DATABASE_URL di .env.local
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Enum ───────────────────────────────────────────────────────────────────
+
+enum ItemType {
+  bahan
+  produk
+}
+
+enum TransactionType {
+  masuk
+  keluar
+}
+
+enum Periode {
+  harian
+  mingguan
+  bulanan
+}
+
+enum TipeCacat {
+  barang
+  bahan
+}
+
+// ─── Model ──────────────────────────────────────────────────────────────────
+
+model Item {
+  id           Int           @id @default(autoincrement())
+  name         String
+  code         String        @unique
+  stock        Int           @default(0)
+  satuan       String
+  type         ItemType
+  kategori   String
+  brand        String?
+  model        String?
+  size         String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  transactions Transaction[]
+  targets      Target[]
+  laporanCacat LaporanCacat[]
+
+  @@map("items")
+}
+
+model Transaction {
+  id           Int             @id @default(autoincrement())
+  itemId       Int
+  item         Item            @relation(fields: [itemId], references: [id])
+  itemName     String
+  itemCode     String
+  satuan       String
+  type         TransactionType
+  quantity     Int
+  tanggal      String          // YYYY-MM-DD
+  jam          String          // HH:mm
+  tujuan       String?
+  stokSebelum  Int
+  stokSesudah  Int
+  createdAt    DateTime        @default(now())
+
+  @@map("transactions")
+}
+
+model Target {
+  id         Int      @id @default(autoincrement())
+  itemId     Int
+  item       Item     @relation(fields: [itemId], references: [id])
+  itemName   String
+  brand      String
+  kategori   String
+  periode    Periode
+  jumlah     Int
+  realisasi  Int      @default(0)
+  createdAt  String   // YYYY-MM-DD
+
+  @@map("targets")
+}
+
+model LaporanCacat {
+  id         Int       @id @default(autoincrement())
+  tipe       TipeCacat
+  itemId     Int
+  item       Item      @relation(fields: [itemId], references: [id])
+  itemName   String
+  jenisCacat String
+  jumlah     Int
+  tanggal    String    // YYYY-MM-DD
+  createdAt  DateTime  @default(now())
+
+  @@map("laporan_cacat")
+}
+
+// ponytail: Item.kategori tetap String tanpa FK. Upgrade: relasi FK jika perlu warna/icon per kategori.
+model Kategori {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  @@map("kategori")
+}
