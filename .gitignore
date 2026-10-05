@@ -15,7 +15,14 @@
 
 # next.js
 /.next/
+**/.next/
 /out/
+
+# generated assistant skill copies
+/.agents/skills/
+/.claude/skills/
+/.cursor/skills/
+/.devin/skills/
 
 # production
 /build
