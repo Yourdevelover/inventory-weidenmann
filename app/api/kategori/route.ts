@@ -1,71 +1,52 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-const DEFAULTS = ["sandal", "sepatu", "bahan"];
-// ponytail: fallback in-memory saat DB unreachable. Upgrade: hapus saat DB connect.
-const memoryKategori = new Set<string>(DEFAULTS);
-// Cache status DB — cegah timeout 10s tiap request
-let dbReachable: boolean | null = null;
-
-async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  const safe = p.catch(() => null);
-  const timer = new Promise<null>(resolve => setTimeout(() => resolve(null), ms));
-  return Promise.race([safe, timer]);
-}
-
-async function ensureTable() {
-  for (const name of DEFAULTS) {
-    await prisma.kategori.upsert({ where: { name }, update: {}, create: { name } });
-  }
-}
-
 export async function GET() {
-  if (dbReachable !== false) {
-    const ok = await withTimeout(ensureTable(), 2000);
-    if (ok !== null) {
-      const rows = await withTimeout(prisma.kategori.findMany({ orderBy: { name: "asc" } }), 2000);
-      if (rows) {
-        dbReachable = true;
-        for (const r of rows) memoryKategori.add(r.name);
-        return NextResponse.json(Array.from(memoryKategori).sort().map(name => ({ name })));
-      }
-    }
-    dbReachable = false;
+  try {
+    const rows = await prisma.kategori.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+    return NextResponse.json(rows);
+  } catch (error) {
+    console.error("GET /api/kategori error:", error);
+    return NextResponse.json({ error: "Database kategori tidak dapat diakses." }, { status: 503 });
   }
-  return NextResponse.json(Array.from(memoryKategori).sort().map(name => ({ name })));
 }
 
 export async function POST(req: Request) {
-  let n = "";
+  let name = "";
   try {
-    const b = await req.json();
-    n = String(b?.name || "").trim().toLowerCase();
-  } catch { n = ""; }
-  if (!n) return NextResponse.json({ error: "Nama kategori wajib" }, { status: 400 });
-  memoryKategori.add(n);
-  if (dbReachable !== false) {
-    const ok = await withTimeout(ensureTable(), 2000);
-    if (ok !== null) {
-      const row = await withTimeout(
-        prisma.kategori.upsert({ where: { name: n }, update: {}, create: { name: n } }),
-        2000
-      );
-      if (row) { dbReachable = true; return NextResponse.json(row, { status: 201 }); }
-    }
-    dbReachable = false;
+    const body = await req.json();
+    name = String(body?.name || "").trim().toLowerCase();
+  } catch {
+    return NextResponse.json({ error: "Body JSON tidak valid" }, { status: 400 });
   }
-  return NextResponse.json({ name: n }, { status: 201 });
+  if (!name) return NextResponse.json({ error: "Nama kategori wajib" }, { status: 400 });
+  try {
+    const row = await prisma.kategori.upsert({ where: { name }, update: {}, create: { name } });
+    return NextResponse.json(row, { status: 201 });
+  } catch (error) {
+    console.error("POST /api/kategori error:", error);
+    return NextResponse.json({ error: "Kategori gagal disimpan ke database." }, { status: 503 });
+  }
 }
 
 export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
-  const n = String(searchParams.get("name") || "").trim().toLowerCase();
-  if (!n) return NextResponse.json({ error: "Nama kategori wajib" }, { status: 400 });
-  memoryKategori.delete(n);
-  if (dbReachable !== false) {
-    const ok = await withTimeout(prisma.kategori.deleteMany({ where: { name: n } }), 2000);
-    if (ok !== null) dbReachable = true;
-    else dbReachable = false;
+  const name = String(searchParams.get("name") || "").trim().toLowerCase();
+  if (!name) return NextResponse.json({ error: "Nama kategori wajib" }, { status: 400 });
+  try {
+    const deleted = await prisma.$transaction(async (tx) => {
+      const items = await tx.item.findMany({ where: { kategori: name }, select: { id: true } });
+      const itemIds = items.map((item) => item.id);
+      await tx.transaction.deleteMany({ where: { itemId: { in: itemIds } } });
+      await tx.target.deleteMany({ where: { itemId: { in: itemIds } } });
+      await tx.laporanCacat.deleteMany({ where: { itemId: { in: itemIds } } });
+      await tx.item.deleteMany({ where: { id: { in: itemIds } } });
+      await tx.kategori.deleteMany({ where: { name } });
+      return items.length;
+    });
+    return NextResponse.json({ ok: true, deleted });
+  } catch (error) {
+    console.error("DELETE /api/kategori error:", error);
+    return NextResponse.json({ error: "Kategori gagal dihapus dari database." }, { status: 503 });
   }
-  return NextResponse.json({ ok: true });
 }

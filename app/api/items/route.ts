@@ -4,7 +4,13 @@ import { prisma, dbFast } from "@/lib/prisma";
 // GET /api/items — list all items
 export async function GET() {
   const items = await dbFast(prisma.item.findMany({ orderBy: { id: "desc" } }));
-  return NextResponse.json(items || []);
+  if (items === null) {
+    return NextResponse.json(
+      { error: "Database tidak dapat diakses. Periksa koneksi dan pastikan tabel sudah dibuat." },
+      { status: 503 }
+    );
+  }
+  return NextResponse.json(items);
 }
 
 // DELETE /api/items?kategori=xxx — delete all items in a kategori
@@ -46,8 +52,8 @@ export async function POST(req: Request) {
       const newItem = await tx.item.create({
         data: { name, code, stock: Number(stock), satuan, type, kategori, brand, model, size },
       });
-      if (Number(stock) > 0) {
-        await tx.transaction.create({
+      const initialTransaction = Number(stock) > 0
+        ? await tx.transaction.create({
           data: {
             itemId: newItem.id,
             itemName: newItem.name,
@@ -60,9 +66,9 @@ export async function POST(req: Request) {
             stokSebelum: 0,
             stokSesudah: Number(stock),
           },
-        });
-      }
-      return newItem;
+        })
+        : null;
+      return { item: newItem, initialTransaction };
     });
 
     return NextResponse.json(item, { status: 201 });

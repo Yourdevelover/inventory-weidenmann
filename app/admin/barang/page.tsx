@@ -17,7 +17,7 @@ export default function DataBarang() {
 
 function DataBarangContent() {
   const searchParams = useSearchParams();
-  const { items, addItem, deleteItem, refresh } = useStock();
+  const { items, loading, addItem, deleteItem, categories, categoriesLoading, categoriesError, refreshCategories, addCategory, deleteCategory } = useStock();
   const [selectionDismissed, setSelectionDismissed] = useState(false);
 
   const handleExport = () => {
@@ -29,15 +29,14 @@ function DataBarangContent() {
     );
     exportToPdf(`Data Barang — ${displayedTab}`, head, body, `admin-data-barang-${displayedTab}.pdf`);
   };
-  const [activeTab, setActiveTab] = useState<string>("sandal");
+  const [activeTab, setActiveTab] = useState<string>("semua");
   const [search, setSearch] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isKategoriModalOpen, setIsKategoriModalOpen] = useState(false);
   const [newKategoriName, setNewKategoriName] = useState("");
-  const [kategoriList, setKategoriList] = useState<string[]>(["sandal", "sepatu", "bahan"]);
-  const [shakingKategori, setShakingKategori] = useState<string | null>(null);
   const [deleteAllMode, setDeleteAllMode] = useState(false);
   const [deleteAllTarget, setDeleteAllTarget] = useState<string | null>(null);
+  const [isDeletingKategori, setIsDeletingKategori] = useState(false);
 
   // form state
   const [newNama, setNewNama] = useState("");
@@ -48,17 +47,7 @@ function DataBarangContent() {
   const [newStok, setNewStok] = useState("");
   const [newKategori, setNewKategori] = useState<string>(activeTab);
 
-  const fetchKategori = async () => {
-    try {
-      const res = await fetch("/api/kategori");
-      if (!res.ok) throw new Error("fetch failed");
-      const rows: { name: string }[] = await res.json();
-      if (rows.length === 0) throw new Error("empty");
-      setKategoriList(rows.map(r => r.name));
-    } catch { setKategoriList(["sandal", "sepatu", "bahan"]); }
-  };
-
-  useEffect(() => { fetchKategori(); }, []);
+  const kategoriList = categories.map((category) => category.name);
 
   const requestedItemId = Number(searchParams.get("item"));
   const requestedItem = Number.isSafeInteger(requestedItemId)
@@ -68,15 +57,18 @@ function DataBarangContent() {
   const displayedTab = selectedItem?.kategori ?? activeTab;
   const displayedSearch = selectedItem?.code ?? search;
 
-  const tabs = kategoriList.map(k => ({
-    key: k,
-    label: k.charAt(0).toUpperCase() + k.slice(1),
-    color: "text-foreground border-foreground",
-    badge: "bg-muted text-foreground",
-  }));
+  const tabs = [
+    { key: "semua", label: "Semua", color: "text-foreground border-foreground", badge: "bg-muted text-foreground" },
+    ...kategoriList.map(k => ({
+      key: k,
+      label: k.charAt(0).toUpperCase() + k.slice(1),
+      color: "text-foreground border-foreground",
+      badge: "bg-muted text-foreground",
+    })),
+  ];
 
   const filtered = (items || []).filter((i: any) => {
-    const matchTab = i.kategori === displayedTab;
+    const matchTab = displayedTab === "semua" || i.kategori === displayedTab;
     const matchSearch = i.name.toLowerCase().includes(displayedSearch.toLowerCase()) ||
       i.code.toLowerCase().includes(displayedSearch.toLowerCase());
     return matchTab && matchSearch;
@@ -86,20 +78,24 @@ function DataBarangContent() {
   const totalStok = filtered.reduce((s: number, i: any) => s + i.stock, 0);
 
   const openModal = () => {
-    setNewKategori(displayedTab);
+    setNewKategori(displayedTab === "semua" ? kategoriList[0] || "sandal" : displayedTab);
     setNewNama(""); setNewSize(""); setNewCode("");
     setNewBrand(""); setNewSatuan("pcs"); setNewStok("");
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNama || !newStok) return;
     const kategoriFinal = newKategori;
     const type = kategoriFinal === "bahan" ? "bahan" : "produk";
     const fullName = newNama;
-    addItem(fullName, newCode || "-", parseInt(newStok), newSatuan, type, kategoriFinal, newBrand || undefined, undefined, newSize || undefined);
-    setIsModalOpen(false);
+    try {
+      await addItem(fullName, newCode || "-", parseInt(newStok), newSatuan, type, kategoriFinal, newBrand || undefined, undefined, newSize || undefined);
+      setIsModalOpen(false);
+    } catch {
+      alert("Barang gagal disimpan. Periksa koneksi lalu coba lagi.");
+    }
   };
 
   const handleDelete = async (id: number, name: string) => {
@@ -116,42 +112,34 @@ function DataBarangContent() {
     const k = newKategoriName.trim().toLowerCase();
     if (!k) return;
     try {
-      await fetch("/api/kategori", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: k }),
-      });
-      await fetchKategori();
+      const savedCategory = await addCategory(k);
       setNewKategoriName("");
       setIsKategoriModalOpen(false);
-      setActiveTab(k);
+      setActiveTab(savedCategory.name);
     } catch { alert("Gagal tambah kategori"); }
   };
 
   const handleDeleteAllKategori = () => {
     setDeleteAllMode(true);
     setDeleteAllTarget(null);
-    setShakingKategori(null);
   };
 
   const handleDeleteAllConfirm = (name: string) => {
     setDeleteAllTarget(name);
-    setShakingKategori(name);
-    setTimeout(() => {
-      setShakingKategori(null);
-      if (!confirm(`Hapus semua barang kategori "${name}"?`)) return;
-      (async () => {
-        try {
-          await fetch(`/api/items?kategori=${encodeURIComponent(name)}`, { method: "DELETE" });
-          await fetch(`/api/kategori?name=${encodeURIComponent(name)}`, { method: "DELETE" });
-          await refresh();
-          await fetchKategori();
-          if (activeTab === name) setActiveTab(kategoriList[0] || "sandal");
-          setDeleteAllMode(false);
-          setDeleteAllTarget(null);
-        } catch { alert("Gagal hapus"); }
-      })();
-    }, 450);
+  };
+
+  const confirmDeleteAllKategori = async () => {
+    if (!deleteAllTarget || isDeletingKategori) return;
+    const name = deleteAllTarget;
+    setIsDeletingKategori(true);
+    try {
+      await deleteCategory(name);
+      const updatedKategoriList = kategoriList.filter((category) => category !== name);
+      if (activeTab === name) setActiveTab(updatedKategoriList[0] || "sandal");
+      setDeleteAllMode(false);
+      setDeleteAllTarget(null);
+    } catch { alert("Penghapusan gagal. Periksa koneksi lalu coba lagi."); }
+    finally { setIsDeletingKategori(false); }
   };
   const inputCls = "w-full border border-input rounded-md p-2 text-sm bg-background focus:ring-1 focus:ring-ring outline-none";
 
@@ -165,7 +153,7 @@ function DataBarangContent() {
           </div>
           <div className="text-right">
             <p className="text-[10px] text-muted-foreground">Total Stok</p>
-            <p className="text-lg font-bold text-foreground">{totalStok}</p>
+            <p className="text-lg font-bold text-foreground">{loading ? "Memuat..." : totalStok}</p>
           </div>
         </div>
       </div>
@@ -173,9 +161,15 @@ function DataBarangContent() {
       <div className="bg-card border border-border rounded-lg overflow-hidden">
         {/* Tabs */}
         <div className="flex border-b border-border px-2 flex-wrap items-center gap-0.5">
-          {deleteAllMode ? kategoriList.map((k, i) => (
-            <div key={k} className={`flex items-center group animate-shake-loop ${shakingKategori === k ? "bg-destructive/10" : ""}`} style={{ animationDelay: `${i * 0.06}s` }}>
-              <button onClick={() => handleDeleteAllConfirm(k)} className={`px-2 py-1 text-[11px] font-medium rounded transition-colors ${deleteAllTarget === k ? "bg-destructive/20 text-destructive" : "text-muted-foreground hover:text-foreground"}`} title={k}>
+          {categoriesLoading ? (
+            <div role="status" aria-label="Memuat kategori" className="flex gap-1 py-1">
+              <span className="h-6 w-12 animate-pulse rounded bg-muted" />
+              <span className="h-6 w-14 animate-pulse rounded bg-muted" />
+              <span className="h-6 w-14 animate-pulse rounded bg-muted" />
+            </div>
+          ) : deleteAllMode ? kategoriList.map(k => (
+            <div key={k} className="flex items-center">
+              <button onClick={() => handleDeleteAllConfirm(k)} className="px-2 py-1 text-[11px] font-medium rounded border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors" title={`Pilih kategori ${k} untuk dihapus`}>
                 {k.charAt(0).toUpperCase() + k.slice(1)}
               </button>
             </div>
@@ -192,15 +186,17 @@ function DataBarangContent() {
               <X size={12} />
             </button>
           ) : (
-            <button onClick={() => setIsKategoriModalOpen(true)} title="Tambah Kategori" className="ml-2 p-2 text-xs font-medium rounded-md border border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary transition-colors">
+            <button disabled={categoriesLoading} onClick={() => setIsKategoriModalOpen(true)} title="Tambah Kategori" className="ml-2 p-2 text-xs font-medium rounded-md border border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary transition-colors disabled:opacity-40">
               <Plus size={12} />
             </button>
           )}
-          {kategoriList.length > 0 && !deleteAllMode && (
+          {kategoriList.length > 0 && !deleteAllMode && !categoriesLoading && (
             <button onClick={handleDeleteAllKategori} title="Hapus Kategori" className="ml-2 p-2 text-xs font-medium rounded-md border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors">
               <Trash2 size={12} />
             </button>
           )}
+          {!categoriesLoading && categoriesError && <p className="basis-full px-1 pb-2 text-[11px] text-destructive">{categoriesError} <button onClick={() => void refreshCategories()} className="font-medium underline">Coba lagi</button></p>}
+          {deleteAllMode && !categoriesLoading && <p className="basis-full px-1 pb-2 text-[11px] text-muted-foreground">Pilih kategori yang ingin dihapus. Barang dan data terkait akan ikut terhapus.</p>}
         </div>
 
         {/* Search + Aksi */}
@@ -241,9 +237,11 @@ function DataBarangContent() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border text-foreground">
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr><td colSpan={displayedTab === "bahan" ? 5 : 7} role="status" className="py-10 text-center text-muted-foreground">Memuat data barang...</td></tr>
+              ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={displayedTab !== "bahan" ? 6 : 4} className="py-10 text-center text-muted-foreground">
+                  <td colSpan={displayedTab === "bahan" ? 5 : 7} className="py-10 text-center text-muted-foreground">
                     Tidak ada data. Klik + untuk menambah barang.
                   </td>
                 </tr>
@@ -283,10 +281,31 @@ function DataBarangContent() {
           </table>
         </div>
 
-        {filtered.length > 0 && (
+        {!loading && filtered.length > 0 && (
           <div className="px-4 py-2 border-t border-border bg-muted/20 text-[10px] text-muted-foreground">{filtered.length} item</div>
         )}
       </div>
+
+      {deleteAllTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="delete-category-title" aria-describedby="delete-category-description" className="w-full max-w-sm overflow-hidden rounded-xl border border-border bg-background shadow-xl">
+            <div className="border-b border-border bg-destructive/5 px-4 py-3">
+              <h2 id="delete-category-title" className="text-sm font-semibold text-foreground">Hapus kategori {deleteAllTarget}?</h2>
+            </div>
+            <div className="space-y-4 p-4">
+              <p id="delete-category-description" className="text-sm leading-relaxed text-muted-foreground">
+                Semua barang dalam kategori ini, transaksi, target produksi, dan laporan cacat terkait akan dihapus permanen.
+              </p>
+              <div className="flex gap-2">
+                <button type="button" disabled={isDeletingKategori} onClick={() => { setDeleteAllTarget(null); setDeleteAllMode(false); }} className="flex-1 rounded-md bg-muted px-4 py-2 text-xs font-medium text-muted-foreground disabled:opacity-50">Batal</button>
+                <button type="button" disabled={isDeletingKategori} onClick={confirmDeleteAllKategori} className="flex-1 rounded-md bg-destructive px-4 py-2 text-xs font-medium text-destructive-foreground disabled:opacity-50">
+                  {isDeletingKategori ? "Menghapus..." : "Hapus kategori dan data"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tambah Kategori Modal */}
       {isKategoriModalOpen && (

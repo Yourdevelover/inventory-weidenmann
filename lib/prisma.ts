@@ -11,16 +11,15 @@ export const prisma =
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
-// ponytail: fast-fail saat DB unreachable. Upgrade: hapus saat DB connect.
-export let dbDown = false;
-export async function dbFast<T>(p: Promise<T>, ms = 2000): Promise<T | null> {
-  if (dbDown) return null;
-  const safe = p.then(
-    (v) => ({ ok: true as const, v }),
+export async function dbFast<T>(query: Promise<T>, timeoutMs = 8000): Promise<T | null> {
+  const safe = query.then(
+    (value) => ({ ok: true as const, value }),
     () => ({ ok: false as const })
   );
-  const timer = new Promise<{ ok: false }>((r) => setTimeout(() => r({ ok: false }), ms));
-  const res = await Promise.race([safe, timer]);
-  if (!res.ok) { dbDown = true; setTimeout(() => { dbDown = false; }, 30000); return null; }
-  return res.v;
+  const timeout = new Promise<{ ok: false }>((resolve) => {
+    const timer = setTimeout(() => resolve({ ok: false }), timeoutMs);
+    safe.then(() => clearTimeout(timer));
+  });
+  const result = await Promise.race([safe, timeout]);
+  return result.ok ? result.value : null;
 }

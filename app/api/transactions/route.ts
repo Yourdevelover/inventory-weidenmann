@@ -7,7 +7,13 @@ export async function GET(req: Request) {
   const itemId = searchParams.get("itemId");
   const where = itemId ? { itemId: Number(itemId) } : {};
   const txns = await dbFast(prisma.transaction.findMany({ where, orderBy: { id: "desc" } }));
-  return NextResponse.json(txns || []);
+  if (txns === null) {
+    return NextResponse.json(
+      { error: "Database tidak dapat diakses. Periksa koneksi dan pastikan tabel sudah dibuat." },
+      { status: 503 }
+    );
+  }
+  return NextResponse.json(txns);
 }
 
 // POST /api/transactions — record masuk/keluar (server computes stok)

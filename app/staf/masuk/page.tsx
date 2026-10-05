@@ -6,7 +6,7 @@ import { useStock } from "@/components/StockContext";
 import { exportToPdf } from "@/lib/pdf";
 
 export default function StafBarangMasuk() {
-  const { items, addItem, recordMasuk, recordKeluar, updateItem } = useStock();
+  const { items, loading, addItem, recordMasuk, recordKeluar, updateItem } = useStock();
   const [successMsg, setSuccessMsg] = useState("");
   const [search, setSearch] = useState("");
 
@@ -39,31 +39,40 @@ export default function StafBarangMasuk() {
     exportToPdf("Stok Bahan", head, body, "stok-bahan.pdf");
   };
 
-  const handleCreateNewItem = (e: React.FormEvent) => {
+  const handleCreateNewItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newStock) return;
-    addItem(newName, newCode || "-", parseInt(newStock), newSatuan, "bahan", "bahan");
-    setSuccessMsg(`"${newName}" ditambahkan!`);
-    setIsNewItemModalOpen(false);
-    setNewName(""); setNewCode(""); setNewStock(""); setNewSatuan("pcs");
-    setTimeout(() => setSuccessMsg(""), 3000);
+    try {
+      await addItem(newName, newCode || "-", parseInt(newStock), newSatuan, "bahan", "bahan");
+      setSuccessMsg(`"${newName}" ditambahkan!`);
+      setIsNewItemModalOpen(false);
+      setNewName(""); setNewCode(""); setNewStock(""); setNewSatuan("pcs");
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch {
+      alert("Bahan gagal disimpan. Periksa koneksi lalu coba lagi.");
+    }
   };
 
-  const handleTransaction = (e: React.FormEvent) => {
+  const handleTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!txQty || !selectedItem) return;
     const qty = parseInt(txQty);
     
-    if (actionType === "masuk") {
-      recordMasuk(selectedItem.id, qty, txTanggal, txJam);
-      setSuccessMsg(`Stok ${selectedItem.name} +${qty}`);
-    } else if (actionType === "keluar") {
-      if (qty > selectedItem.stock) { alert("Jumlah melebihi stok!"); return; }
-      recordKeluar(selectedItem.id, qty, txTanggal, txJam, txTujuan || "Produksi");
-      setSuccessMsg(`Stok ${selectedItem.name} -${qty}`);
-    } else if (actionType === "edit") {
-      updateItem(selectedItem.id, { name: editName, code: editCode, satuan: editSatuan });
-      setSuccessMsg(`Data ${editName} diperbarui`);
+    try {
+      if (actionType === "masuk") {
+        await recordMasuk(selectedItem.id, qty, txTanggal, txJam);
+        setSuccessMsg(`Stok ${selectedItem.name} +${qty}`);
+      } else if (actionType === "keluar") {
+        if (qty > selectedItem.stock) { alert("Jumlah melebihi stok!"); return; }
+        await recordKeluar(selectedItem.id, qty, txTanggal, txJam, txTujuan || "Produksi");
+        setSuccessMsg(`Stok ${selectedItem.name} -${qty}`);
+      } else if (actionType === "edit") {
+        await updateItem(selectedItem.id, { name: editName, code: editCode, satuan: editSatuan });
+        setSuccessMsg(`Data ${editName} diperbarui`);
+      }
+    } catch {
+      alert("Perubahan gagal disimpan. Periksa koneksi lalu coba lagi.");
+      return;
     }
     
     setSelectedItem(null);
@@ -97,7 +106,7 @@ export default function StafBarangMasuk() {
           </div>
           <div className="text-right">
             <p className="text-[10px] text-muted-foreground">Total Stok</p>
-            <p className="text-lg font-bold text-primary">{totalStok}</p>
+            <p className="text-lg font-bold text-primary">{loading ? "Memuat..." : totalStok}</p>
           </div>
         </div>
       </div>
@@ -129,7 +138,9 @@ export default function StafBarangMasuk() {
           <span className="font-medium text-[11px]">Bahan Baru</span>
         </button>
 
-        {bahan.map((item: any) => (
+        {loading && <div role="status" className="col-span-full py-8 text-center text-xs text-muted-foreground">Memuat data bahan...</div>}
+
+        {!loading && bahan.map((item: any) => (
           <div key={item.id} className="bg-card border border-border rounded-lg p-2.5 shadow-sm flex flex-col">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[9px] font-mono text-muted-foreground">{item.code}</span>

@@ -12,12 +12,10 @@ async function fetchJSON(url: string) {
 }
 
 export default function AdminLaporan() {
-  const { items } = useStock();
-  const [targets, setTargets] = useState<any[]>([]);
+  const { items, targets } = useStock();
   const [laporan, setLaporan] = useState<any[]>([]);
 
   useEffect(() => {
-    fetchJSON("/api/targets").then(setTargets).catch(console.error);
     fetchJSON("/api/laporan-cacat").then(setLaporan).catch(console.error);
   }, []);
 

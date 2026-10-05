@@ -17,7 +17,7 @@ export default function StafDataBarang() {
 
 function StafDataBarangContent() {
   const searchParams = useSearchParams();
-  const { items } = useStock() as { items: StockItem[] };
+  const { items, loading } = useStock() as { items: StockItem[]; loading: boolean };
   const kategoriList: string[] = Array.from(new Set((items || []).map((i: any) => i.kategori as string)));
   const [activeTab, setActiveTab] = useState<string>("semua");
   const [search, setSearch] = useState("");
@@ -30,15 +30,18 @@ function StafDataBarangContent() {
   const displayedTab = selectedItem?.kategori ?? activeTab;
   const displayedSearch = selectedItem?.code ?? search;
 
-  const tabs = kategoriList.map((k: string) => ({
-    key: k,
-    label: k === "bahan" ? "Stok Bahan" : k.charAt(0).toUpperCase() + k.slice(1),
-    color: "text-foreground border-foreground",
-    badge: "bg-muted text-foreground",
-  }));
+  const tabs = [
+    { key: "semua", label: "Semua", color: "text-foreground border-foreground", badge: "bg-muted text-foreground" },
+    ...kategoriList.map((k: string) => ({
+      key: k,
+      label: k === "bahan" ? "Stok Bahan" : k.charAt(0).toUpperCase() + k.slice(1),
+      color: "text-foreground border-foreground",
+      badge: "bg-muted text-foreground",
+    })),
+  ];
 
   const filtered = (items || []).filter((i: any) => {
-    const matchTab = i.kategori === displayedTab;
+    const matchTab = displayedTab === "semua" || i.kategori === displayedTab;
     const matchSearch = i.name.toLowerCase().includes(displayedSearch.toLowerCase()) || i.code.toLowerCase().includes(displayedSearch.toLowerCase());
     return matchTab && matchSearch;
   });
@@ -66,7 +69,7 @@ function StafDataBarangContent() {
           </div>
           <div className="text-right">
             <p className="text-[10px] text-muted-foreground">Total Stok</p>
-            <p className="text-lg font-bold text-foreground">{totalStok}</p>
+            <p className="text-lg font-bold text-foreground">{loading ? "Memuat..." : totalStok}</p>
           </div>
         </div>
       </div>
@@ -81,7 +84,7 @@ function StafDataBarangContent() {
             >
               {tab.label}
               <span className="ml-1 text-[9px] sm:text-[10px] font-semibold px-1 py-0.5 rounded-full bg-muted text-muted-foreground">
-                {(items || []).filter((i: any) => i.kategori === tab.key).length}
+                {(items || []).filter((i: any) => tab.key === "semua" || i.kategori === tab.key).length}
               </span>
             </button>
           ))}
@@ -122,7 +125,9 @@ function StafDataBarangContent() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border text-foreground">
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr><td colSpan={6} role="status" className="py-10 text-center text-muted-foreground">Memuat data barang...</td></tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={displayedTab !== "bahan" ? 6 : 4} className="py-10 text-center text-muted-foreground">Tidak ada data.</td>
                 </tr>
@@ -150,7 +155,7 @@ function StafDataBarangContent() {
           </table>
         </div>
 
-        {filtered.length > 0 && (
+        {!loading && filtered.length > 0 && (
           <div className="px-4 py-2 border-t border-border bg-muted/20 text-[10px] text-muted-foreground">{filtered.length} item</div>
         )}
       </div>

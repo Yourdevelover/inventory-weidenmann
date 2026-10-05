@@ -1,49 +1,17 @@
 ﻿"use client";
 
-import { useState, useEffect } from "react";
-import { useStock } from "@/components/StockContext";
+import { useState } from "react";
+import { useStock, type Target } from "@/components/StockContext";
 import { CheckCircle2, Trash2, Pencil, Check, X, Plus, Download } from "lucide-react";
 import { exportToPdf } from "@/lib/pdf";
 
 type Periode = "harian" | "mingguan" | "bulanan";
 
-type Target = {
-  id: number;
-  itemId: number;
-  itemName: string;
-  brand: string;
-  kategori: string;
-  periode: Periode;
-  jumlah: number;
-  realisasi: number;
-  createdAt: string;
-};
-
-async function fetchJSON(url: string, opts?: RequestInit) {
-  const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
-}
-
 export default function TargetBarang() {
-  const { items } = useStock();
+  const { items, targets, addTarget, updateTarget, deleteTarget } = useStock();
   const produk = (items || []).filter((i: any) => i.type === "produk");
 
-  const [targets, setTargets] = useState<Target[]>([]);
   const [successMsg, setSuccessMsg] = useState("");
-
-  const refreshTargets = async () => {
-    try {
-      const data = await fetchJSON("/api/targets");
-      setTargets(data);
-    } catch (e) {
-      console.error("Gagal load targets:", e);
-    }
-  };
-
-  useEffect(() => {
-    refreshTargets();
-  }, []);
 
   // modal tambah
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -74,10 +42,7 @@ export default function TargetBarang() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selKategori || !selItemId || !jumlah || !selectedItem) return;
-    const newTarget = await fetchJSON("/api/targets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const newTarget = await addTarget({
         itemId: Number(selItemId),
         itemName: selectedItem.name,
         brand: selectedItem.brand || "-",
@@ -85,9 +50,7 @@ export default function TargetBarang() {
         periode,
         jumlah: parseInt(jumlah),
         createdAt: new Date().toISOString().slice(0, 10),
-      }),
     });
-    setTargets([newTarget, ...targets]);
     setSuccessMsg(`Target ${periode} ${newTarget.jumlah} pcs disimpan!`);
     setIsAddOpen(false);
     setJumlah("");
@@ -95,8 +58,7 @@ export default function TargetBarang() {
   };
 
   const handleDelete = async (id: number) => {
-    await fetchJSON(`/api/targets/${id}`, { method: "DELETE" });
-    setTargets(targets.filter(t => t.id !== id));
+    await deleteTarget(id);
   };
 
   const startEdit = (t: Target) => {
@@ -109,12 +71,7 @@ export default function TargetBarang() {
     if (!editingTarget) return;
     const val = parseInt(editJumlah);
     if (isNaN(val) || val < 0) return;
-    const updated = await fetchJSON(`/api/targets/${editingTarget.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ realisasi: val }),
-    });
-    setTargets(targets.map(t => t.id === editingTarget.id ? updated : t));
+    await updateTarget(editingTarget.id, { realisasi: val });
     setEditingTarget(null);
     setSuccessMsg("Realisasi berhasil diupdate!");
     setTimeout(() => setSuccessMsg(""), 3000);

@@ -4,7 +4,13 @@ import { prisma, dbFast } from "@/lib/prisma";
 // GET /api/targets
 export async function GET() {
   const targets = await dbFast(prisma.target.findMany({ orderBy: { id: "desc" } }));
-  return NextResponse.json(targets || []);
+  if (targets === null) {
+    return NextResponse.json(
+      { error: "Database tidak dapat diakses. Periksa koneksi dan pastikan tabel sudah dibuat." },
+      { status: 503 }
+    );
+  }
+  return NextResponse.json(targets);
 }
 
 // POST /api/targets

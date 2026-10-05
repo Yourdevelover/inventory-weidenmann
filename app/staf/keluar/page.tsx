@@ -1,12 +1,12 @@
 ﻿"use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Plus, Minus, Edit2, X, CheckCircle2, PackagePlus, Search, Download, Trash2 } from "lucide-react";
 import { useStock } from "@/components/StockContext";
 import { exportToPdf } from "@/lib/pdf";
 
 export default function StafBarangKeluar() {
-  const { items, addItem, recordMasuk, recordKeluar, updateItem, refresh } = useStock();
+  const { items, loading, addItem, recordMasuk, recordKeluar, updateItem, categories, categoriesLoading, categoriesError, refreshCategories, addCategory, deleteCategory } = useStock();
   const [successMsg, setSuccessMsg] = useState("");
   const [search, setSearch] = useState("");
 
@@ -36,22 +36,11 @@ export default function StafBarangKeluar() {
   const produk = items.filter((i: any) => i.type === "produk" && i.name.toLowerCase().includes(search.toLowerCase()));
   const totalStok = items.filter((i: any) => i.type === "produk").reduce((s: number, i: any) => s + i.stock, 0);
 
-  const [kategoriList, setKategoriList] = useState<string[]>(["sandal", "sepatu", "bahan"]);
-  const [shakingKategori, setShakingKategori] = useState<string | null>(null);
   const [deleteAllMode, setDeleteAllMode] = useState(false);
   const [deleteAllTarget, setDeleteAllTarget] = useState<string | null>(null);
+  const [isDeletingKategori, setIsDeletingKategori] = useState(false);
 
-  const fetchKategori = async () => {
-    try {
-      const res = await fetch("/api/kategori");
-      if (!res.ok) throw new Error("fetch failed");
-      const rows: { name: string }[] = await res.json();
-      if (rows.length === 0) throw new Error("empty");
-      setKategoriList(rows.map(r => r.name));
-    } catch { setKategoriList(["sandal", "sepatu", "bahan"]); }
-  };
-
-  useEffect(() => { fetchKategori(); }, []);
+  const kategoriList = categories.map((category) => category.name);
 
   const [kategoriFilter, setKategoriFilter] = useState<string>("semua");
   const produkFiltered = kategoriFilter === "semua" ? produk : produk.filter((i: any) => i.kategori === kategoriFilter);
@@ -63,16 +52,20 @@ export default function StafBarangKeluar() {
     exportToPdf(`Stok Barang — ${kategoriFilter === "semua" ? "Semua" : kategoriFilter.charAt(0).toUpperCase() + kategoriFilter.slice(1)}`, head, body, `stok-barang-${kategoriFilter}.pdf`);
   };
 
-  const handleNew = (e: React.FormEvent) => {
+  const handleNew = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newStock) return;
     const kategoriFinal = newKategori;
     if (!kategoriFinal) return;
-    addItem(newName, newCode || "-", parseInt(newStock), newSatuan, "produk", kategoriFinal, newBrand || undefined, undefined, newSize || undefined);
-    setSuccessMsg(`"${newName}" ditambahkan!`);
-    setIsNewModalOpen(false);
-    setNewName(""); setNewCode(""); setNewStock(""); setNewSatuan("pcs"); setNewKategori("sandal"); setNewBrand(""); setNewSize("");
-    setTimeout(() => setSuccessMsg(""), 3000);
+    try {
+      await addItem(newName, newCode || "-", parseInt(newStock), newSatuan, "produk", kategoriFinal, newBrand || undefined, undefined, newSize || undefined);
+      setSuccessMsg(`"${newName}" ditambahkan!`);
+      setIsNewModalOpen(false);
+      setNewName(""); setNewCode(""); setNewStock(""); setNewSatuan("pcs"); setNewKategori("sandal"); setNewBrand(""); setNewSize("");
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch {
+      alert("Produk gagal disimpan. Periksa koneksi lalu coba lagi.");
+    }
   };
 
   const handleAddKategori = async (e: React.FormEvent) => {
@@ -80,13 +73,8 @@ export default function StafBarangKeluar() {
     const k = newKategoriName.trim().toLowerCase();
     if (!k) return;
     try {
-      await fetch("/api/kategori", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: k }),
-      });
-      await fetchKategori();
-      setKategoriFilter(k);
+      const savedCategory = await addCategory(k);
+      setKategoriFilter(savedCategory.name);
       setSuccessMsg(`Kategori "${k}" ditambahkan!`);
       setTimeout(() => setSuccessMsg(""), 3000);
       setNewKategoriName("");
@@ -96,48 +84,49 @@ export default function StafBarangKeluar() {
   const handleDeleteAllKategori = () => {
     setDeleteAllMode(true);
     setDeleteAllTarget(null);
-    setShakingKategori(null);
   };
 
   const handleDeleteAllConfirm = (name: string) => {
     setDeleteAllTarget(name);
-    setShakingKategori(name);
-    setTimeout(() => {
-      setShakingKategori(null);
-      if (!confirm(`Hapus semua barang kategori "${name}"?`)) return;
-      (async () => {
-        try {
-          await fetch(`/api/items?kategori=${encodeURIComponent(name)}`, { method: "DELETE" });
-          await fetch(`/api/kategori?name=${encodeURIComponent(name)}`, { method: "DELETE" });
-          await refresh();
-          await fetchKategori();
-          if (kategoriFilter === name) setKategoriFilter("semua");
-          setDeleteAllMode(false);
-          setDeleteAllTarget(null);
-          setSuccessMsg(`Kategori "${name}" dan barangnya dihapus.`);
-          setTimeout(() => setSuccessMsg(""), 3000);
-        } catch { alert("Gagal hapus"); }
-      })();
-    }, 450);
   };
 
-  const handleTransaction = (e: React.FormEvent) => {
+  const confirmDeleteAllKategori = async () => {
+    if (!deleteAllTarget || isDeletingKategori) return;
+    const name = deleteAllTarget;
+    setIsDeletingKategori(true);
+    try {
+      await deleteCategory(name);
+      if (kategoriFilter === name) setKategoriFilter("semua");
+      setDeleteAllMode(false);
+      setDeleteAllTarget(null);
+      setSuccessMsg(`Kategori "${name}" dan barangnya dihapus.`);
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch { alert("Penghapusan gagal. Periksa koneksi lalu coba lagi."); }
+    finally { setIsDeletingKategori(false); }
+  };
+
+  const handleTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedItem) return;
-    if (actionType === "edit") {
-      updateItem(selectedItem.id, { name: editName, code: editCode, satuan: editSatuan, brand: editBrand || undefined, size: editSize || undefined });
-      setSuccessMsg(`Data ${editName} diperbarui`);
-    } else {
-      const qty = parseInt(txQty);
-      if (!txQty) return;
-      if (actionType === "masuk") {
-        recordMasuk(selectedItem.id, qty, txTanggal, txJam);
-        setSuccessMsg(`Stok ${selectedItem.name} +${qty}`);
+    try {
+      if (actionType === "edit") {
+        await updateItem(selectedItem.id, { name: editName, code: editCode, satuan: editSatuan, brand: editBrand || undefined, size: editSize || undefined });
+        setSuccessMsg(`Data ${editName} diperbarui`);
       } else {
-        if (qty > selectedItem.stock) { alert("Jumlah melebihi stok!"); return; }
-        recordKeluar(selectedItem.id, qty, txTanggal, txJam, txTujuan || "Keluar");
-        setSuccessMsg(`Stok ${selectedItem.name} -${qty}`);
+        const qty = parseInt(txQty);
+        if (!txQty) return;
+        if (actionType === "masuk") {
+          await recordMasuk(selectedItem.id, qty, txTanggal, txJam);
+          setSuccessMsg(`Stok ${selectedItem.name} +${qty}`);
+        } else {
+          if (qty > selectedItem.stock) { alert("Jumlah melebihi stok!"); return; }
+          await recordKeluar(selectedItem.id, qty, txTanggal, txJam, txTujuan || "Keluar");
+          setSuccessMsg(`Stok ${selectedItem.name} -${qty}`);
+        }
       }
+    } catch {
+      alert("Perubahan gagal disimpan. Periksa koneksi lalu coba lagi.");
+      return;
     }
     setSelectedItem(null); setActionType(null);
     setTxQty(""); setTxTujuan("");
@@ -169,7 +158,7 @@ export default function StafBarangKeluar() {
           </div>
           <div className="text-right">
             <p className="text-[10px] text-muted-foreground">Total Stok</p>
-            <p className="text-lg font-bold text-purple-600">{totalStok}</p>
+            <p className="text-lg font-bold text-purple-600">{loading ? "Memuat..." : totalStok}</p>
           </div>
         </div>
       </div>
@@ -183,20 +172,24 @@ export default function StafBarangKeluar() {
         >
           Semua
         </button>
-        {deleteAllMode ? kategoriList.map((k, i) => (
-          <div key={k} className={`relative group animate-shake-loop ${shakingKategori === k ? "bg-destructive/10" : ""}`} style={{ animationDelay: `${i * 0.06}s` }}>
+        {categoriesLoading ? (
+          <div role="status" aria-label="Memuat kategori" className="flex gap-1 py-1">
+            <span className="h-7 w-12 animate-pulse rounded-md bg-muted" />
+            <span className="h-7 w-14 animate-pulse rounded-md bg-muted" />
+            <span className="h-7 w-14 animate-pulse rounded-md bg-muted" />
+          </div>
+        ) : deleteAllMode ? kategoriList.map(k => (
+          <div key={k} className="relative group">
             <button
               onClick={() => handleDeleteAllConfirm(k)}
-              title={k}
-              className={`px-2 py-1 text-[11px] font-medium rounded-md border transition-colors cursor-pointer ${
-                deleteAllTarget === k ? "bg-destructive/20 text-destructive border-destructive" : "bg-muted text-muted-foreground border-border hover:bg-destructive/10 hover:text-destructive"
-              }`}
+              title={`Pilih kategori ${k} untuk dihapus`}
+              className="px-2 py-1 text-[11px] font-medium rounded-md border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
             >
               {k.charAt(0).toUpperCase() + k.slice(1)}
             </button>
           </div>
         )) : kategoriList.map((k) => (
-          <div key={k} className={`relative group ${shakingKategori === k ? "animate-shake" : ""}`}>
+          <div key={k} className="relative group">
             <button
               onClick={() => setKategoriFilter(k)}
               title={k}
@@ -218,14 +211,15 @@ export default function StafBarangKeluar() {
           </button>
         ) : (
           <button
+            disabled={categoriesLoading}
             onClick={() => setIsKategoriModalOpen(true)}
             title="Tambah Kategori"
-            className="p-2 text-xs font-medium rounded-md border border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary transition-colors"
+            className="p-2 text-xs font-medium rounded-md border border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary transition-colors disabled:opacity-40"
           >
             <Plus size={12} />
           </button>
         )}
-        {kategoriList.length > 0 && !deleteAllMode && (
+        {kategoriList.length > 0 && !deleteAllMode && !categoriesLoading && (
           <button
             onClick={handleDeleteAllKategori}
             title="Hapus Kategori"
@@ -234,6 +228,8 @@ export default function StafBarangKeluar() {
             <Trash2 size={12} />
           </button>
         )}
+        {!categoriesLoading && categoriesError && <p className="w-full text-[11px] text-destructive">{categoriesError} <button onClick={() => void refreshCategories()} className="font-medium underline">Coba lagi</button></p>}
+        {deleteAllMode && !categoriesLoading && <p className="w-full text-[11px] text-muted-foreground">Pilih kategori yang ingin dihapus. Barang dan data terkait akan ikut terhapus.</p>}
       </div>
 
       {successMsg && (
@@ -266,7 +262,9 @@ export default function StafBarangKeluar() {
           <span className="font-medium text-[11px]">Produk Baru</span>
         </button>
 
-        {produkFiltered.map((item: any) => (
+        {loading && <div role="status" className="col-span-full py-8 text-center text-xs text-muted-foreground">Memuat data barang...</div>}
+
+        {!loading && produkFiltered.map((item: any) => (
           <div key={item.id} className="bg-card border border-border rounded-lg p-2.5 shadow-sm flex flex-col">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[9px] font-mono text-muted-foreground">{item.code}</span>
@@ -300,7 +298,7 @@ export default function StafBarangKeluar() {
         ))}
       </div>
 
-      {produkFiltered.length === 0 && (
+      {!loading && produkFiltered.length === 0 && (
         <div className="text-center py-8 text-muted-foreground text-xs">Tidak ada produk ditemukan.</div>
       )}
 
@@ -408,6 +406,27 @@ export default function StafBarangKeluar() {
                 <button type="submit" className={`flex-1 font-medium text-xs px-4 py-2 rounded-md ${actionType === "keluar" ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground"}`}>Simpan</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deleteAllTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="delete-category-title" aria-describedby="delete-category-description" className="w-full max-w-sm overflow-hidden rounded-xl border border-border bg-background shadow-xl">
+            <div className="border-b border-border bg-destructive/5 px-4 py-3">
+              <h2 id="delete-category-title" className="text-sm font-semibold text-foreground">Hapus kategori {deleteAllTarget}?</h2>
+            </div>
+            <div className="space-y-4 p-4">
+              <p id="delete-category-description" className="text-sm leading-relaxed text-muted-foreground">
+                Semua barang dalam kategori ini, transaksi, target produksi, dan laporan cacat terkait akan dihapus permanen.
+              </p>
+              <div className="flex gap-2">
+                <button type="button" disabled={isDeletingKategori} onClick={() => { setDeleteAllTarget(null); setDeleteAllMode(false); }} className="flex-1 rounded-md bg-muted px-4 py-2 text-xs font-medium text-muted-foreground disabled:opacity-50">Batal</button>
+                <button type="button" disabled={isDeletingKategori} onClick={confirmDeleteAllKategori} className="flex-1 rounded-md bg-destructive px-4 py-2 text-xs font-medium text-destructive-foreground disabled:opacity-50">
+                  {isDeletingKategori ? "Menghapus..." : "Hapus kategori dan data"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

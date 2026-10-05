@@ -15,14 +15,14 @@ type LaporanCacat = {
   tanggal: string;
 };
 
-async function fetchJSON(url: string, opts?: RequestInit) {
+async function fetchJSON<T>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, opts);
   if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
 export default function StafProduksi() {
-  const { items, refresh } = useStock();
+  const { items, applyStockLoss } = useStock();
   const [laporan, setLaporan] = useState<LaporanCacat[]>([]);
   const [success, setSuccess] = useState(false);
   const [tipe, setTipe] = useState<"barang" | "bahan">("barang");
@@ -32,7 +32,7 @@ export default function StafProduksi() {
 
   const refreshLaporan = async () => {
     try {
-      const data = await fetchJSON("/api/laporan-cacat");
+      const data = await fetchJSON<LaporanCacat[]>("/api/laporan-cacat");
       setLaporan(data);
     } catch (e) {
       console.error("Gagal load laporan:", e);
@@ -48,7 +48,7 @@ export default function StafProduksi() {
     if (!itemId || !jenisCacat || !jumlah) return;
     const selected = (items || []).find((i: any) => i.id === Number(itemId));
     if (!selected) return;
-    const newLap = await fetchJSON("/api/laporan-cacat", {
+    const result = await fetchJSON<{ laporan: LaporanCacat; transaction: import("@/components/StockContext").Transaction }>("/api/laporan-cacat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -56,8 +56,8 @@ export default function StafProduksi() {
         tanggal: new Date().toISOString().slice(0, 10),
       }),
     });
-    setLaporan([newLap, ...laporan]);
-    refresh();
+    setLaporan((current) => [result.laporan, ...current]);
+    applyStockLoss(result.transaction);
     setSuccess(true);
     setItemId(""); setJenisCacat(""); setJumlah("");
     setTimeout(() => setSuccess(false), 3000);
